@@ -1,7 +1,6 @@
 import pygame
 import time, os
 
-import ode_solvers
 from objects import Object, Spring
 
 pygame.init()

@@ -1,7 +1,7 @@
 import pygame
 import time, os
-from objects import Object, Spring
-from ode_solvers import rk4
+from objects import Particle, Spring
+from ode_solvers.rk4 import runge_kutta_4th_order
 
 pygame.init()
 
@@ -19,6 +19,8 @@ FONT = pygame.font.SysFont("DejaVu Sans", 20)
 
 FRAMERATE = 600  # framerate * tickrate
 TIMESTEP = 1 / FRAMERATE  # 1 / (FRAMERATE / 60)
+DIMENSIONS = 2
+ZOOM = 1
 
 
 def main():
@@ -26,13 +28,8 @@ def main():
     clock = pygame.time.Clock()
     tickcounter = 0
 
-    p1 = Object(0, 100, 10, BLUE, 10, TIMESTEP)
-    p1.x_vel = 0
-    p1.y_vel = 0
-
-    p2 = Object(0, 250, 10, RED, 10, TIMESTEP)
-    p2.y_vel = 0
-    p2.y_vel = 0
+    p1 = Particle([0, 100], 10.00, DIMENSIONS, ZOOM, TIMESTEP, 10.00, DARK_GREY)
+    p2 = Particle([0, 250], 10.00, DIMENSIONS, ZOOM, TIMESTEP, 10.00, DARK_GREY)
 
     spring = Spring(p1, p2, length=100, k=5)
 
@@ -58,7 +55,7 @@ def main():
                 run = False
 
         # update positions
-        rk4([p1, p2], add_forces)
+        runge_kutta_4th_order([p1, p2], add_forces)
 
         # drawing
         for i in scene:
