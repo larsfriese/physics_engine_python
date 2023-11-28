@@ -1,10 +1,10 @@
 import pygame
 import time, os
 
-import ode_solvers
+from ode_solvers import rk4
 from objects import Object, Spring, Spring_to_mouse, coords_to_pygame
 from constraints import ConstraintManager
-from ode_solvers import rk4
+from ode_solvers.rk4 import rk4
 
 pygame.init()
 

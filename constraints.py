@@ -1,58 +1,47 @@
 import numpy as np
-import time, math
+import math
 from sympy import symbols, diff
 from sympy.parsing.sympy_parser import parse_expr
-
-
-def evaluate(function):
-    start = time.time()
-    function()
-    end = time.time()
-    return end - start
+from objects import Particle
 
 
 class ConstraintManager:
-    def __init__(self, scene):
+    def __init__(self, scene: list, dimensions: int):
         self.scene = scene
-        self.dim = 2
+        self.dimensions = dimensions
 
         # list of positions, velocities and forces
-        self.q = np.zeros(self.dim * len(scene)).reshape((self.dim * len(scene), 1))
-        self.dq = np.zeros(self.dim * len(scene)).reshape((self.dim * len(scene), 1))
-        self.Q = np.zeros(self.dim * len(scene)).reshape((self.dim * len(scene), 1))
-        for c, i in enumerate(scene):
-            self.q[2*c] = i.x
-            self.q[2*c+1] = i.y
-            self.dq[2*c] = i.x_vel
-            self.dq[2*c+1] = i.y_vel
-            self.Q[2*c] = i.force_accumulator_x
-            self.Q[2*c+1] = i.force_accumulator_y
+        scene_length = len(self.scene)
+        self.q = np.zeros(self.dimensions * scene_length, dtype=np.float64).reshape((self.dimensions * scene_length, 1))
+        self.dq = np.zeros(self.dimensions * scene_length, dtype=np.float64).reshape((self.dimensions * scene_length, 1))
+        self.Q = np.zeros(self.dimensions * scene_length, dtype=np.float64).reshape((self.dimensions * scene_length, 1))
 
         # create the diagonal mass matrix
-        elements = self.dim * len(self.scene)
-        self.M = np.zeros(shape=(elements, elements))
-        for c, i in enumerate(scene):
-            self.M[2*c, 2*c] = i.mass
-            self.M[2*c+1, 2*c+1] = i.mass
+        dim_times_particles = self.dimensions * scene_length
+        self.M = np.zeros(shape=(dim_times_particles, dim_times_particles), dtype=np.float64)
 
-        # inverse of mass matrix
-        self.W = np.linalg.inv(self.M)
+        for c, particle in enumerate(scene):
+            for dim in range(self.dimensions):
+                self.q[2*c+dim] = particle.position[dim]
+                self.dq[2*c+dim] = particle.velocity[dim]
+                self.Q[2*c+dim] = particle.force_accumulator[dim]
+                self.M[2*c+dim, 2*c+dim] = particle.mass
 
-        # create the jacobi matrix
-        self.j = np.zeros(shape=(0, elements))
-        self.dj = np.zeros(shape=(0, elements))
+        self.W = np.linalg.inv(self.M)                                         # inverse mass matrix
 
-        # create the constraint vector
-        self.c = []
-        self.dc = []
+        self.j = np.zeros(shape=(0, dim_times_particles), dtype=np.float64)      # jacobi matrix J = δC/δq
+        self.dj = np.zeros(shape=(0, dim_times_particles), dtype=np.float64)     # derivative of the jacobi matrix
 
-    def update(self, scene):
-        self.__init__(self.scene)
+        self.c = []                                                              # constraint C
+        self.dc = []                                                             # derivative of the constraints δC/dδ
 
-    def rail_constraint(self, obj, function):
+    def update(self) -> None:
+        self.__init__(self.scene, self.dimensions)
+
+    def rail_constraint(self, particle: Particle, function: str) -> None:
 
         # find index of object in scene
-        index = self.scene.index(obj)
+        index = self.scene.index(particle)
         objects = len(self.scene)
 
         # parse the function
@@ -66,7 +55,7 @@ class ConstraintManager:
         j = []
         for c, i in enumerate(range(objects)):
             if c == index:
-                j.extend([-df.subs(x, obj.x), 1])
+                j.extend([-df.subs(x, particle.position[0]), 1])
             else:
                 j.extend([0, 0])
 
@@ -77,7 +66,7 @@ class ConstraintManager:
         dj = []
         for c, i in enumerate(range(objects)):
             if c == index:
-                dj.extend([-ddf.subs(x, obj.x) * obj.x_vel, 0])
+                dj.extend([-ddf.subs(x, particle.position[0]) * particle.velocity[0], 0])
             else:
                 dj.extend([0, 0])
 
@@ -86,32 +75,30 @@ class ConstraintManager:
         self.j = np.concatenate((self.j, j), axis=0)
         self.dj = np.concatenate((self.dj, dj), axis=0)
 
-        self.c += [obj.y - f.subs(x, obj.x)]
-        self.dc += [-df.subs(x, obj.x) * obj.x_vel + obj.y_vel]
+        self.c += [particle.position[1] - f.subs(x, particle.position[0])]
+        self.dc += [-df.subs(x, particle.position[0]) * particle.velocity[0] + particle.velocity[1]]
 
-        return [j, dj]
-
-    def distance_constraint(self, obj1, obj2):
+    def distance_constraint(self, particle1: Particle, particle2: Particle) -> None:
 
         # find index of object in scene
-        index1 = self.scene.index(obj1)
-        index2 = self.scene.index(obj2)
+        index1 = self.scene.index(particle1)
+        index2 = self.scene.index(particle2)
         objects = len(self.scene)
 
         # positions
-        x1 = obj1.x
-        y1 = obj1.y
-        x2 = obj2.x
-        y2 = obj2.y
+        x1 = particle1.position[0]
+        y1 = particle1.position[1]
+        x2 = particle2.position[0]
+        y2 = particle2.position[1]
 
         # velocities
-        x1_vel = obj1.x_vel
-        y1_vel = obj1.y_vel
-        x2_vel = obj2.x_vel
-        y2_vel = obj2.y_vel
+        x1_vel = particle1.velocity[0]
+        y1_vel = particle1.velocity[1]
+        x2_vel = particle2.velocity[0]
+        y2_vel = particle2.velocity[1]
 
         # denominator for all the derivatives
-        u = math.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+        u = np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
 
         j = []
         for c, i in enumerate(range(objects)):
@@ -142,24 +129,22 @@ class ConstraintManager:
         self.j = np.concatenate((self.j, j), axis=0)
         self.dj = np.concatenate((self.dj, dj), axis=0)
 
-        return [j, dj]
-
-    def circular_wire_constraint(self, obj):
+    def circular_wire_constraint(self, particle: Particle) -> None:
 
         # find index of object in scene
-        index = self.scene.index(obj)
+        index = self.scene.index(particle)
         objects = len(self.scene)
 
         # positions
-        x = obj.x
-        y = obj.y
+        x = particle.position[0]
+        y = particle.position[1]
 
         # velocities
-        x_vel = obj.x_vel
-        y_vel = obj.y_vel
+        x_vel = particle.velocity[0]
+        y_vel = particle.velocity[1]
 
         # denominator for all the derivatives
-        u = math.sqrt(x**2 + y**2)
+        u = np.sqrt(x**2 + y**2)
 
         j = []
         for c, i in enumerate(range(objects)):
@@ -185,20 +170,21 @@ class ConstraintManager:
         self.j = np.concatenate((self.j, j), axis=0)
         self.dj = np.concatenate((self.dj, dj), axis=0)
 
-        return [j, dj]
-
     def add_forces(self):
         j_trans = self.j.T
-        p1 = self.j.dot(self.W).dot(j_trans)
+        """p1 = self.j.dot(self.W).dot(j_trans)
         p2 = self.dj.dot(self.dq)
-        p3 = self.j.dot(self.W).dot(self.Q)
-        solution_vectors = np.linalg.solve(self.j.dot(self.W).dot(j_trans), - self.dj.dot(self.dq) - self.j.dot(self.W).dot(self.Q))
+        p3 = self.j.dot(self.W).dot(self.Q)"""
+        solution_vectors = np.linalg.solve(self.j.dot(self.W).dot(j_trans),
+                                           - self.dj.dot(self.dq) - self.j.dot(self.W).dot(self.Q))
         constraint = j_trans.dot(solution_vectors)
 
         # add forces
-        for c, i in enumerate(self.scene):
-            i.force_accumulator_x += constraint[2*c][0]
-            i.force_accumulator_y += constraint[2*c+1][0]
+        for c, particle in enumerate(self.scene):
+            """i.force_accumulator_x += constraint[2*c][0]
+            i.force_accumulator_y += constraint[2*c+1][0]"""
+            particle.force_accumulator[0] += constraint[2*c][0]
+            particle.force_accumulator[1] += constraint[2*c+1][0]
 
     def get_forces(self):
         j_trans = self.j.T
